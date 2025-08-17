@@ -1,5 +1,5 @@
 module "vpc" {
-  source        = "git::https://github.com/Vinicius-DevOps/terrform-gpc-modules.git//modules/vpc?ref=main"
+  source        = "git::https://github.com/vinicius3516/terraform-gcp-modules.git//modules/vpc?ref=main"
   environment   = var.environment
   subnet_cidr   = var.subnet_cidr
   region        = var.region
@@ -8,7 +8,7 @@ module "vpc" {
 }
 
 module "gke" {
-  source            = "git::https://github.com/Vinicius-DevOps/terrform-gpc-modules.git//modules/gke?ref=main"
+  source            = "git::https://github.com/vinicius3516/terraform-gcp-modules.git//modules/gke?ref=main"
   environment       = var.environment
   region            = var.region
   project_id        = var.project_id
