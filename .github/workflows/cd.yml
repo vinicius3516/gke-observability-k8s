@@ -53,6 +53,7 @@ jobs:
                 kubectl apply -f service-app.yaml
                 kubectl apply -f ingress.yaml
                 kubectl apply -f service-observ.yaml
+                kubectl apply -f ingress-grafana.yaml
 
             - name: Service Monitor Deploy
               working-directory: ./monitoring/prometheus
