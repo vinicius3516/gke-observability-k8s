@@ -2,7 +2,6 @@
 variable "project_id" {
   description = "GCP project ID"
   type        = string
-  default     = "iconic-ruler-461814-q4"
 }
 variable "environment" {
   description = "Environment name"

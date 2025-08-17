@@ -1,0 +1,84 @@
+name: Deploy
+on:
+  workflow_run:
+    workflows: [Build Test and Push]
+    branches:
+      - main
+      - staging
+    types: completed
+
+jobs:
+    deploy-app:
+        runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.tag.outputs.TAG }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Google Cloud Authentication
+              uses: google-github-actions/auth@v2
+              with:
+                credentials_json: ${{ secrets.GCP_SA_KEY_GKE }}
+
+            - name: Google Cloud SDK setup
+              uses: google-github-actions/setup-gcloud@v2
+              with:
+                project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+            - name: Get GKE credentials        
+              uses: 'google-github-actions/get-gke-credentials@v2'
+              with:
+                  cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+                  location: ${{ secrets.GCP_REGION }}
+
+            - name: Helm Install
+              run: |
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+            - name: Image tag definition
+              id: tag
+              run: |
+                echo "TAG=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+            - name: Application Manifests Deploy
+              working-directory: ./k8s
+              env:
+                GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+                GCP_REGION: ${{ secrets.GCP_REGION }}
+                GCP_ARTIFACT_REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+                IMAGE_TAG: ${{ steps.tag.outputs.TAG }}
+              run: |
+                envsubst < deployment.yaml | kubectl apply -f -
+                kubectl apply -f service-app.yaml
+                kubectl apply -f ingress.yaml
+                kubectl apply -f service-observ.yaml
+
+            - name: Service Monitor Deploy
+              working-directory: ./monitoring/prometheus
+              run: |
+                kubectl apply -f service-monitor.yaml
+
+            - name: Prometheus Rule Deploy
+              working-directory: ./monitoring/prometheus
+              run: |
+                kubectl apply -f prometheusrule-python-app.yaml
+
+            - name: Create Secret for Slack Webhook URL
+              run: |
+                kubectl -n default create secret generic slack-webhooks \
+                  --from-literal=critical_url=${{ secrets.CRITICAL_URL }} \
+                  --from-literal=warning_url=${{ secrets.WARNING_URL }} \
+
+            - name: Upgrade helm chart for Alertmanager
+              working-directory: ./monitoring
+              run: |
+                helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+                helm repo update
+                helm upgrade --install my-kube-prometheus-stack prometheus-community/kube-prometheus-stack --version 76.3.0 \
+                  -n monitoring -f values.yaml
+
+            - name: AlertmanagerConfig Deploy
+              working-directory: ./monitoring/alertmanager
+              run: |
+                kubectl apply -f alertmanagerconfig-webhook.yaml
