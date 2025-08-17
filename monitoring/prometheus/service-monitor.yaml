@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: svc-monitor
+  namespace: monitoring
+  labels:
+    release: my-kube-prometheus-stack
+    team: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-observability
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+      scheme: http
+  namespaceSelector:
+    matchNames:
+      - default

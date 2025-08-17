@@ -1,0 +1,59 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: app
+    ports:
+      - "8080:8000"
+    networks:
+      - my-network
+
+  prometheus:
+    image: prom/prometheus:v3.3.0
+    container_name: prometheus
+    restart: always
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/rules/alerts.yml:/etc/prometheus/rules/alerts.yml
+    networks:
+      - my-network
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: alertmanager
+    restart: always
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./prometheus/alert-manager.yml:/etc/alertmanager/alertmanager.yaml
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yaml"
+    networks:
+      - my-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - my-network
+    
+
+
+networks:
+  my-network:
+    driver: bridge

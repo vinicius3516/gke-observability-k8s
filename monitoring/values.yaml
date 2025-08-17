@@ -1,0 +1,23 @@
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    alertmanagerConfigSelector:
+      matchLabels:
+        managed-by: my-kube-prometheus-stack
+    alertmanagerConfigNamespaceSelector: {}
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+      group_by: ['alertname','namespace','service']
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      routes:
+        - matchers:
+            - alertname = "Watchdog"
+          receiver: "null"
+    receivers:
+      - name: default
+      - name: "null"

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deployment
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: app-observability
+  template:
+    metadata:
+      labels:
+        app: app-observability
+    spec:
+      containers:
+        - name: app
+          image:  $GCP_REGION-docker.pkg.dev/$GCP_PROJECT_ID/$GCP_ARTIFACT_REPO/app-observability:$IMAGE_TAG
+          ports:
+          - name:  http
+            containerPort:  8000
+            protocol: TCP

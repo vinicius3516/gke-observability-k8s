@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-monitoring
+  labels:
+    app.kubernetes.io/name: app-observability
+spec:
+  selector:
+    app: app-observability
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port:  8000
+    targetPort:  8000
