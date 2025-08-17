@@ -1,0 +1,134 @@
+name: Infra Deployment
+on:
+    workflow_dispatch:
+        inputs:
+            environment:
+                description: The environment to deploy
+                type: choice
+                required: true
+                options:
+                    - staging
+                    - production
+            action:
+                description: The terraform action
+                type: choice
+                required: true
+                options:
+                    - deploy
+                    - destroy
+jobs:
+    infra:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Google Cloud Authentication
+              uses: google-github-actions/auth@v2
+              with:
+                credentials_json: ${{ secrets.GCP_SA_KEY_GKE }}
+
+            - name: Set Up AWS Credentials
+              uses: aws-actions/configure-aws-credentials@v4.1.0
+              with:
+                aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                aws-region: ${{ secrets.AWS_REGION }}
+
+            - name: Set up Terraform
+              uses: hashicorp/setup-terraform@v2
+            
+            - name: Initialize Terraform
+              working-directory: ./infra
+              run: |
+                terraform init \
+                    -backend-config="bucket=${{ secrets.AWS_S3_BUCKET }}" \
+                    -backend-config="key=envs/${{ github.event.inputs.environment }}/terraform.tfstate" \
+                    -backend-config="region=${{ secrets.AWS_REGION }}" \
+                    -backend-config="encrypt=true" \
+                    -backend-config="use_lockfile=true"
+
+            - name: Terraform Format
+              working-directory: ./infra
+              run: terraform fmt -check
+
+            - name: Terraform Plan
+              if: github.event.inputs.action == 'deploy'
+              working-directory: ./infra
+              run: |
+                terraform plan -out=plan.out \
+                    -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+                    -var="environment=${{ github.event.inputs.environment }}" \
+                    -var="region=${{ secrets.GCP_REGION }}" \
+                    -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars"
+
+            - name: Terraform Plan Destroy
+              if: github.event.inputs.action == 'destroy'
+              working-directory: ./infra
+              run: |
+                terraform plan -destroy -out=destroy-plan.out \
+                    -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
+                    -var="environment=${{ github.event.inputs.environment }}" \
+                    -var="region=${{ secrets.GCP_REGION }}" \
+                    -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars"
+
+            - name: Terraform Apply
+              if: github.event.inputs.action == 'deploy'
+              working-directory: ./infra
+              run: |
+                terraform apply -auto-approve plan.out
+
+            - name: Terraform Destroy
+              if: github.event.inputs.action == 'destroy'
+              working-directory: ./infra
+              run: |
+                terraform apply -auto-approve destroy-plan.out
+
+
+    stack-deploy:
+        if: github.event.inputs.action == 'deploy'
+        needs: infra
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Google Cloud Authentication
+              uses: google-github-actions/auth@v2
+              with:
+                credentials_json: ${{ secrets.GCP_SA_KEY_GKE }}
+
+            - name: Google Cloud SDK setup
+              uses: google-github-actions/setup-gcloud@v2
+              with:
+                project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+            - name: Get GKE credentials        
+              uses: 'google-github-actions/get-gke-credentials@v2'
+              with:
+                  cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+                  location: ${{ secrets.GCP_REGION }}
+
+            - name: Helm Install
+              run: |
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+            - name: Cluster Admin Permissions for the Ingress Controller
+              run: |
+                kubectl create clusterrolebinding cluster-admin-binding \
+                  --clusterrole cluster-admin \
+                  --user $(gcloud config get-value account)
+
+            - name: Ingress Controller Install
+              run: |
+                kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.13.0/deploy/static/provider/cloud/deploy.yaml
+
+            - name: Deploy Monitoring Stack with Helm
+              run: |
+                helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+                helm repo update
+                helm upgrade --install my-kube-prometheus-stack prometheus-community/kube-prometheus-stack --version 76.3.0 \
+                    --namespace monitoring \
+                    --create-namespace \
+                    --set grafana.service.type=ClusterIP \
+                    --set prometheus.service.type=ClusterIP

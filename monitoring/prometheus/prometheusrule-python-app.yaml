@@ -1,0 +1,59 @@
+apiVersion: monitoring.coreos.com/v1     
+kind: PrometheusRule 
+metadata:
+  name: python-app-rules
+  namespace: monitoring 
+  labels:           
+    release: my-kube-prometheus-stack    
+    team: observability                     
+spec:                                  
+  groups:                                   
+    - name: python-app.general             
+      rules:                                  
+
+        # ------------------ Rule 1: Watchdog (always active) ------------------
+        - alert: Watchdog                    
+          expr: vector(1)                     
+          for: 0m                            
+          labels:                               
+            severity: "none"                    
+            app: "app-observability"           
+            namespace: "default"                
+          annotations:                          
+            summary: "Watchdog - validação do pipeline de alertas"   
+            description: >                  
+              Alerta propositalmente sempre ativo para verificar o fluxo
+              Prometheus → Alertmanager → (receivers). Não deve acionar paginação.
+
+        # ----------- Rule 2: AppDown (no scraping /metrics) ---------------
+        - alert: PythonAppDown              
+          expr: (up{service="svc-monitoring",namespace="default"} == 0) or absent(up{service="svc-monitoring",namespace="default"})   
+          for: 1m                               
+          labels:                            
+            severity: "critical"          
+            app: "app-observability"           
+            namespace: "default"               
+          annotations:                          
+            summary: "Aplicação fora do ar: {{ $labels.service }} (ns: {{ $labels.namespace }})" 
+            description: >                    
+              O endpoint /metrics da aplicação não está sendo coletado (up==0)
+              há pelo menos 1 minutos. Verifique o Service, Endpoints e logs do Pod.
+
+
+        # ----- Rule 3: High p95 latency (using your request histogram) -----
+        - alert: PythonAppP95LatencyHigh       
+          expr: |                           
+            histogram_quantile(
+              0.95,                             
+              sum(rate(http_request_duration_seconds_bucket{namespace="default",service="srv-monitoring"}[5m])) by (le)
+            ) > 0.5   
+          for: 5m                              
+          labels:                               
+            severity: "warning"                 
+            app: "app-observability"                  
+            namespace: "default"                   
+          annotations:                          
+            summary: "Latência p95 alta (>500ms) na python-app"  
+            description: >                     
+              A latência p95 das requisições HTTP excedeu 500ms por 5 minutos.
+              Avalie carga, latência de dependências e uso de CPU/memória do Pod.
